@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>👥 Selección de jugadores</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Comic+Neue&display=swap" rel="stylesheet">
+  <style>body { font-family: 'Comic Neue', cursive; }</style>
+</head>
+<body class="bg-gradient-to-br from-cyan-100 to-blue-200 min-h-screen text-center p-6">
+
+  <h1 class="text-3xl font-bold text-blue-800 mb-6">👥 Selección de jugadores</h1>
+
+  <div id="lista-jugadores" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mb-6"></div>
+
+  <div class="mt-4">
+    <button onclick="vaciarSeleccion()" class="bg-red-400 hover:bg-red-500 text-white px-4 py-2 rounded-full">🗑️ Vaciar selección</button>
+  </div>
+
+  <div class="mt-6">
+    <button onclick="continuar()" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-full text-lg shadow">✅ Continuar</button>
+  </div>
+
+  <script>
+    let usuarios = JSON.parse(localStorage.getItem("usuarios") || '{}');
+    let seleccionados = JSON.parse(localStorage.getItem("jugadoresActivos") || '[]');
+
+    function render() {
+      const contenedor = document.getElementById('lista-jugadores');
+      contenedor.innerHTML = '';
+      Object.entries(usuarios).forEach(([id, data]) => {
+        const activo = seleccionados.includes(id);
+        const div = document.createElement('div');
+        div.className = `p-4 rounded-xl shadow bg-white flex flex-col items-center gap-2 ${activo ? 'ring-2 ring-green-400' : ''}`;
+
+        const img = document.createElement('img');
+        img.src = data.imagen || 'https://cdn-icons-png.flaticon.com/512/616/616408.png';
+        img.className = 'w-16 h-16 rounded-full';
+
+        const nombre = document.createElement('p');
+        nombre.className = 'font-bold';
+        nombre.innerText = data.nombre;
+
+        const btn = document.createElement('button');
+        btn.innerText = activo ? '❌ Quitar' : '✅ Seleccionar';
+        btn.className = `text-sm px-3 py-1 rounded-full ${activo ? 'bg-red-400 text-white' : 'bg-green-400 text-white'}`;
+        btn.onclick = () => toggleJugador(id);
+
+        const btnEliminar = document.createElement('button');
+        btnEliminar.innerText = '🗑️ Eliminar';
+        btnEliminar.className = 'text-xs bg-red-300 px-2 py-1 rounded-full text-white';
+        btnEliminar.onclick = () => eliminarPerfil(id);
+
+        div.appendChild(img);
+        div.appendChild(nombre);
+        div.appendChild(btn);
+        div.appendChild(btnEliminar);
+        contenedor.appendChild(div);
+      });
+    }
+
+    function toggleJugador(id) {
+      if (seleccionados.includes(id)) {
+        seleccionados = seleccionados.filter(j => j !== id);
+      } else {
+        if (seleccionados.length < 4) {
+          seleccionados.push(id);
+        } else {
+          alert('Solo se permiten hasta 4 jugadores');
+        }
+      }
+      localStorage.setItem('jugadoresActivos', JSON.stringify(seleccionados));
+      render();
+    }
+
+    function vaciarSeleccion() {
+      seleccionados = [];
+      localStorage.setItem('jugadoresActivos', JSON.stringify(seleccionados));
+      render();
+    }
+
+    function eliminarPerfil(id) {
+      if (confirm('¿Eliminar este perfil completamente?')) {
+        delete usuarios[id];
+        seleccionados = seleccionados.filter(j => j !== id);
+        localStorage.setItem('usuarios', JSON.stringify(usuarios));
+        localStorage.setItem('jugadoresActivos', JSON.stringify(seleccionados));
+        render();
+      }
+    }
+
+    function continuar() {
+      if (seleccionados.length === 0) {
+        alert('Selecciona al menos un jugador.');
+        return;
+      }
+      localStorage.setItem("usuarioActivo", seleccionados[0]);
+      window.location.href = "menu.html";
+    }
+
+    render();
+  </script>
+</body>
+</html>

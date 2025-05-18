@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>🖱️ Juego de Selección (Sockets)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Comic+Neue&display=swap" rel="stylesheet">
+    <!-- Incluir Cliente Socket.IO -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        body { font-family: 'Comic Neue', cursive; }
+        /* Estilo para feedback temporal */
+        .feedback-positivo { color: #16a34a; /* green-600 */ }
+        .feedback-negativo { color: #dc2626; /* red-600 */ }
+        .feedback-neutro { color: #64748b; /* slate-500 */ }
+        /* Estilo para botones deshabilitados */
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+         /* Iframe style */
+         iframe { margin: 1.5rem auto; border-radius: 0.5rem; box-shadow: 0 4px 8px rgba(0,0,0,0.1); display: block; max-width: 90%;}
+    </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-green-100 to-lime-200 text-center p-6">
+    <h1 class="text-4xl font-bold text-green-900 mb-4">🖱️ Selección Múltiple</h1>
+
+    <!-- Área de Mascota y Estado -->
+    <div class="flex justify-center items-center gap-4 mb-4">
+        <img id="mascota-juego" src="https://cdn-icons-png.flaticon.com/512/616/616408.png" alt="Mascota" class="w-20 h-20 animate-bounce">
+        <div>
+            <p id="jugador-actual" class="text-lg font-bold text-purple-800">Cargando...</p>
+            <p id="mensaje-mascota" class="text-md text-purple-600 font-semibold">¡Prepárate para jugar!</p>
+        </div>
+    </div>
+    <div id="estado-jugadores" class="text-sm text-gray-600 mb-4 h-6"></div>
+
+    <!-- Video de YouTube (si lo tenías) -->
+     <iframe width="320" height="240"
+             src="https://www.youtube.com/embed/j1RIUuftxKo"
+             title="Video explicativo Selección Múltiple"
+             frameborder="0"
+             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+             allowfullscreen></iframe>
+
+    <!-- Área de Juego -->
+    <div id="juego-area" class="bg-white max-w-xl mx-auto p-6 rounded-xl shadow mb-6 opacity-50 transition-opacity duration-500">
+        <p class="text-lg text-gray-700">Nivel: <span id="nivel" class="font-bold">?</span> | Aciertos Totales: <span id="aciertos" class="font-bold">?</span></p>
+        <div id="enunciado" class="text-3xl font-bold my-6 text-blue-800 min-h-[4rem]">Esperando pregunta...</div>
+        <div id="opciones" class="flex flex-wrap justify-center gap-4 mb-6 min-h-[6rem]">
+            <!-- Opciones se cargarán aquí -->
+        </div>
+        <div id="feedback" class="text-xl font-semibold min-h-[3rem] flex items-center justify-center">
+             <!-- Feedback visual de la respuesta -->
+             <span id="feedback-text"></span>
+        </div>
+    </div>
+
+    <!-- Botones de Navegación -->
+    <div class="mt-8 space-x-4">
+        <button id="btn-salir" onclick="salirDelJuego()" class="bg-red-500 hover:bg-red-700 text-white px-5 py-2 rounded-full shadow transition transform hover:scale-105 disabled:opacity-50" disabled>🚪 Salir</button>
+        <a href="../menu.html" class="bg-gray-400 hover:bg-gray-500 text-white px-4 py-2.5 rounded-full inline-block">🔙 Volver al Menú</a>
+    </div>
+
+    <!-- Sonidos -->
+    <audio id="sonido-acierto" src="https://www.soundjay.com/buttons/sounds/button-3.mp3" preload="auto"></audio>
+    <audio id="sonido-error" src="https://www.soundjay.com/buttons/sounds/button-10.mp3" preload="auto"></audio>
+    <audio id="sonido-nivel" src="https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3" preload="auto"></audio>
+
+<script>
+    // --- Configuración ---
+    const SOCKET_URL = "http://localhost:3001";
+    const localUserId = parseInt(localStorage.getItem("usuarioActivo"));
+    const urlParams = new URLSearchParams(window.location.search);
+    const gameInstanceId = urlParams.get('gameId');
+    const gameType = 'seleccion';
+
+    // --- Estado Local ---
+    let socket;
+    let miNombre = '';
+    let miMascota = '';
+    let objetivoActual = '';
+    let botonesDeshabilitados = false;
+    let nivelActualLocal = 1;
+
+    // --- Elementos UI ---
+    const jugadorActualEl = document.getElementById('jugador-actual');
+    const estadoJugadoresEl = document.getElementById('estado-jugadores');
+    const mascotaJuegoEl = document.getElementById('mascota-juego');
+    const mensajeMascotaEl = document.getElementById('mensaje-mascota');
+    const juegoAreaEl = document.getElementById('juego-area');
+    const nivelEl = document.getElementById('nivel');
+    const aciertosEl = document.getElementById('aciertos');
+    const enunciadoEl = document.getElementById('enunciado');
+    const opcionesEl = document.getElementById('opciones');
+    const feedbackTextEl = document.getElementById('feedback-text');
+    const btnSalirEl = document.getElementById('btn-salir');
+
+    // --- Sonidos y Voz ---
+    const sonidoAcierto = document.getElementById('sonido-acierto');
+    const sonidoError = document.getElementById('sonido-error');
+    const sonidoNivel = document.getElementById('sonido-nivel');
+    function hablar(texto) {
+         if (!texto || typeof speechSynthesis === 'undefined') return;
+         try {
+             speechSynthesis.cancel();
+             const voz = new SpeechSynthesisUtterance(texto);
+             voz.lang = 'es-ES';
+             voz.rate = 1.1;
+             speechSynthesis.speak(voz);
+         } catch(e){ console.error("Speech synthesis error:", e); }
+    }
+    // Mascotas y Frases
+    const frasesMascota = { "Perro": "¡Tú puedes! 🐶", "Gato": "¡Qué listo eres! 🐱", "Tortuga": "¡Paso a paso! 🐢", "Elefante": "¡Gran memoria! 🐘" };
+    const imagenesMascotas = { "Perro": "https://cdn-icons-png.flaticon.com/512/616/616408.png", "Gato": "https://cdn-icons-png.flaticon.com/512/616/616430.png", "Tortuga": "https://cdn-icons-png.flaticon.com/512/1998/1998611.png", "Elefante": "https://cdn-icons-png.flaticon.com/512/616/6164089.png"};
+
+
+    // --- Funciones UI ---
+    function setBotonesEstado(habilitados) {
+         botonesDeshabilitados = !habilitados;
+         // Verificar si opcionesEl existe antes de iterar
+         if (opcionesEl) {
+            opcionesEl.querySelectorAll('button').forEach(btn => {
+                if (btn) btn.disabled = !habilitados;
+            });
+         }
+    }
+
+    function actualizarMensajeMascota(tipo, textoAdicional = '') {
+         let mensajeBase = frasesMascota[miMascota] || "¡Sigue así!";
+         if (mensajeMascotaEl) mensajeMascotaEl.innerText = mensajeBase + " " + textoAdicional;
+    }
+
+    function actualizarUIJugadores(playersData) {
+        let jugadoresHtml = 'Jugando: ';
+        let foundMe = false;
+        let myTotalAciertos = '?'; // Valor por defecto
+
+        if(!playersData || playersData.length === 0) {
+             if(estadoJugadoresEl) estadoJugadoresEl.innerText = 'Esperando jugadores...';
+            return;
+        }
+        playersData.forEach(p => {
+            // Asegurarse que p.nivel existe y es un número
+            const nivelToShow = (p.nivel !== undefined && p.nivel !== null) ? p.nivel : '?';
+            jugadoresHtml += `${p.nombre}(N${nivelToShow})${p.userId === localUserId ? '⭐' : ''}, `;
+            if (p.userId === localUserId) {
+                foundMe = true;
+                miNombre = p.nombre;
+                miMascota = p.mascota;
+                nivelActualLocal = p.nivel; // Guardar nivel actual
+                 // Usar totalAciertosUser de answerResult si está disponible, sino el del perfil
+                myTotalAciertos = p.totalAciertosUser !== undefined ? p.totalAciertosUser : (p.userData?.total_aciertos !== undefined ? p.userData.total_aciertos : '?');
+
+                 if(jugadorActualEl) jugadorActualEl.innerText = `¡Vamos ${miNombre}!`;
+                 if(nivelEl) nivelEl.innerText = nivelToShow;
+                 if(aciertosEl) aciertosEl.innerText = myTotalAciertos;
+
+                try{
+                    if(mascotaJuegoEl) mascotaJuegoEl.src = imagenesMascotas[p.mascota] || imagenesMascotas['Perro'];
+                } catch(e){console.error("Error setting mascot image", e)}
+            }
+        });
+        if (!foundMe) {
+             if(jugadorActualEl) jugadorActualEl.innerText = "Esperando...";
+        }
+         if(estadoJugadoresEl) estadoJugadoresEl.innerText = jugadoresHtml.slice(0, -2);
+         if(juegoAreaEl) juegoAreaEl.style.opacity = 1;
+         if(btnSalirEl) btnSalirEl.disabled = false;
+    }
+
+    function mostrarPregunta(elemento, opciones) {
+        console.log("Mostrar Pregunta (Seleccion):", elemento, opciones);
+        objetivoActual = elemento;
+         if(enunciadoEl) enunciadoEl.textContent = `Selecciona: ${elemento}`;
+         if(opcionesEl) opcionesEl.innerHTML = ''; // Limpiar opciones anteriores
+        if (opciones && opciones.length > 0) {
+            opciones.forEach(op => {
+                const btn = document.createElement('button');
+                btn.textContent = op;
+                btn.className = 'bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-full text-lg transform transition hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-opacity-75 disabled:opacity-50';
+                btn.onclick = () => verificar(op);
+                if(opcionesEl) opcionesEl.appendChild(btn);
+            });
+        } else {
+            if(opcionesEl) opcionesEl.innerHTML = '<p class="text-gray-500">Esperando opciones...</p>';
+             console.warn("No options received for element:", elemento);
+        }
+         if(feedbackTextEl) {
+             feedbackTextEl.textContent = '';
+             feedbackTextEl.className = 'text-xl font-semibold min-h-[3rem] flex items-center justify-center';
+         }
+        setBotonesEstado(true);
+        hablar(`Selecciona ${elemento}`);
+    }
+
+    function mostrarFeedbackVisual(esCorrecto, textoExpected = null) {
+        let textoPrevio = feedbackTextEl?.textContent || ''; // Obtener texto de feedbackUpdate (ej. nivel)
+        let mensajePrincipal = esCorrecto ? `✅ ¡Correcto!` : `❌ ¡Ups!`;
+        if (!esCorrecto && textoExpected) {
+           mensajePrincipal += ` Era "${textoExpected}".`; // Mostrar respuesta correcta si falló
+        }
+        if(feedbackTextEl) {
+           // Mostrar resultado Y el feedback previo (ej. cambio nivel) si lo hubo
+           feedbackTextEl.textContent = `${mensajePrincipal} ${textoPrevio}`;
+           feedbackTextEl.className = `text-xl font-semibold min-h-[3rem] flex items-center justify-center ${esCorrecto ? 'feedback-positivo' : 'feedback-negativo'}`;
+        }
+       setBotonesEstado(false); // Deshabilitar botones
+    }
+
+    // Limpiar Texto (función cliente)
+    function limpiarTextoCliente(texto = '') {
+        if(typeof texto !== 'string') texto = String(texto);
+        // Simplificado: solo pasar a mayúsculas para comparación básica
+        return texto.toUpperCase().trim();
+        // Si necesitas la normalización completa:
+        // return texto.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    }
+
+
+    // --- Lógica de Interacción ---
+    function verificar(seleccion) {
+        if (botonesDeshabilitados || !socket || !socket.connected) {
+             console.warn("Verificar llamado sin conexión o botones deshabilitados.");
+             return;
+         }
+        setBotonesEstado(false); // Deshabilitar inmediatamente
+
+        console.log(`Enviando Respuesta (Seleccion): ${seleccion}, esperando ${objetivoActual}`);
+        socket.emit('submitAnswer', {
+            gameInstanceId: gameInstanceId,
+            userId: localUserId,
+            answer: seleccion,
+            // No necesitamos enviar element o correct desde aquí
+        });
+
+         // Mostrar feedback temporal mientras esperamos
+          if(feedbackTextEl) {
+              feedbackTextEl.textContent = '🤔 Comprobando...';
+              feedbackTextEl.className = 'text-xl font-semibold min-h-[3rem] flex items-center justify-center feedback-neutro';
+          }
+    }
+
+    function salirDelJuego() {
+        console.log("Intentando salir del juego...");
+        if(btnSalirEl) btnSalirEl.disabled = true;
+        if(btnSalirEl) btnSalirEl.innerText = "Saliendo...";
+         if (socket && socket.connected) {
+             socket.emit('leaveGame', { gameInstanceId: gameInstanceId, userId: localUserId });
+         }
+        // Dar tiempo antes de redirigir
+         setTimeout(() => { window.location.href = '../menu.html'; }, 300);
+    }
+
+    // --- Lógica de Sockets ---
+    function conectarSocket() {
+        if (socket && socket.connected) {
+             console.log("Socket ya conectado.");
+             return;
+        }
+
+         if(jugadorActualEl) jugadorActualEl.innerText = "Conectando...";
+        socket = io(SOCKET_URL, {
+             reconnectionAttempts: 3,
+             timeout: 10000
+         });
+
+        // --- Listeners de Eventos Socket ---
+        socket.on("connect", () => {
+            console.log("Socket Conectado:", socket.id);
+             if(jugadorActualEl) jugadorActualEl.innerText = 'Conectado. Identificando...';
+            if (localUserId) {
+                socket.emit("identify", localUserId);
+            } else {
+                console.error("localUserId no está definido al conectar!");
+                alert("Error crítico: Falta ID de usuario.");
+                 if(jugadorActualEl) jugadorActualEl.innerText = 'Error: Sin ID';
+                  if(btnSalirEl) btnSalirEl.disabled = false; // Habilitar salir si falla
+            }
+        });
+
+        socket.on("identified", () => {
+            console.log("Identificado por el servidor.");
+             if(jugadorActualEl) jugadorActualEl.innerText = 'Identificado. Uniéndose...';
+            socket.emit('joinGame', {
+                gameInstanceId: gameInstanceId,
+                userId: localUserId,
+                gameType: gameType
+            });
+        });
+
+        socket.on("disconnect", (reason) => {
+            console.warn("Socket Desconectado:", reason);
+             if(jugadorActualEl) jugadorActualEl.innerText = 'Desconectado.';
+            alert("Se perdió la conexión con el servidor. Recarga la página o vuelve al menú.");
+             if(juegoAreaEl) juegoAreaEl.style.opacity = 0.5;
+             if(btnSalirEl) btnSalirEl.disabled = true; // Deshabilitar salir en desconexión
+             setBotonesEstado(false);
+        });
+
+        socket.on("connect_error", (err) => {
+            console.error("Error de Conexión Socket:", err.message);
+             if(jugadorActualEl) jugadorActualEl.innerText = 'Error de conexión.';
+            alert(`No se pudo conectar al servidor: ${err.message}. Verifica que el backend esté corriendo.`);
+             if(juegoAreaEl) juegoAreaEl.style.opacity = 0.5;
+             if(btnSalirEl) btnSalirEl.disabled = true; // Deshabilitar salir si no hay conexión
+        });
+
+        socket.on("serverError", (data) => {
+            console.error("Error del Servidor:", data.message);
+            alert(`Error del servidor: ${data.message}`);
+            setBotonesEstado(true); // Re-habilitar botones si el error fue temporal al procesar
+        });
+
+        // --- Eventos Específicos del Juego ---
+        socket.on("gameStateUpdate", (data) => {
+            console.log("Recibido gameStateUpdate:", data);
+            try {
+                actualizarUIJugadores(data.players || []);
+            } catch(e) { console.error("Error updating UI players:", e)}
+        });
+
+        socket.on("nextElement", (data) => {
+             console.log("Recibido nextElement (Seleccion):", data);
+             try {
+                 if (data && data.element && Array.isArray(data.options)) {
+                     mostrarPregunta(data.element, data.options);
+                 } else {
+                      if(enunciadoEl) enunciadoEl.textContent = "Esperando desafío...";
+                      if(opcionesEl) opcionesEl.innerHTML='';
+                     console.warn("Datos de nextElement incompletos o inválidos:", data);
+                 }
+             } catch (e) {
+                 console.error("Error procesando nextElement:", e);
+                  if(enunciadoEl) enunciadoEl.textContent = "Error al cargar desafío";
+             }
+        });
+
+        socket.on("feedbackUpdate", (data) => {
+            // data = { type: number, nivelCambiado: boolean, nuevoNivel: number }
+            console.log("Recibido feedbackUpdate:", data);
+             let feedbackMsg = '';
+             if (data.nivelCambiado) {
+                 try { if(sonidoNivel) sonidoNivel.play().catch(e=>{console.warn("Sound error",e)}); } catch(e){}
+                 feedbackMsg = `¡Nivel ${data.nuevoNivel}! `;
+                  if(nivelEl) nivelEl.innerText = data.nuevoNivel; // Actualizar nivel visual
+             }
+             // Añadir mensaje basado en el tipo de feedback difuso
+             if (data.type >= 0.8) feedbackMsg += "🚀 ¡Genial!";
+             else if (data.type >= 0.4) feedbackMsg += "👍 ¡Bien!";
+             else feedbackMsg += "💪 ¡Ánimo!";
+
+              // Poner este mensaje en el feedback ANTES de mostrar el resultado de acierto/error
+              if(feedbackTextEl) feedbackTextEl.textContent = feedbackMsg;
+              // Actualizar mensaje de la mascota parlante
+               actualizarMensajeMascota(data.type, data.nivelCambiado ? `¡Alcanzaste el Nivel ${data.nuevoNivel}!` : '');
+        });
+
+        socket.on("answerResult", (data) => {
+             // data = { userId: number, correct: boolean, expected: string|null, newLevel: number, totalAciertosUser: number }
+             console.log("Recibido answerResult:", data);
+              if (data.userId === localUserId) {
+                 const esCorrectoServer = data.correct;
+                 // Usar la función para mostrar feedback visual final
+                 mostrarFeedbackVisual(esCorrectoServer, data.expected); // Mostrará si era incorrecto y qué se esperaba
+                 // Reproducir sonido apropiado
+                 try {
+                     if (esCorrectoServer) { if(sonidoAcierto) sonidoAcierto.play().catch(e=>{console.warn("Sound error",e)}); }
+                     else { if(sonidoError) sonidoError.play().catch(e=>{console.warn("Sound error",e)}); }
+                 } catch(e){}
+                 // Actualizar aciertos totales
+                  if(aciertosEl) aciertosEl.innerText = data.totalAciertosUser !== undefined ? data.totalAciertosUser : '?';
+                 // Los botones permanecen deshabilitados, esperando 'nextElement'
+              } else {
+                   // Lógica si otro jugador respondió (si aplica al juego)
+                   console.log(`Jugador ${data.userId} respondió.`);
+              }
+        });
+
+        socket.on("playerLeft", (data) => {
+            console.log(`Jugador ${data.userId} se ha ido.`);
+             // Podríamos actualizar la lista visual, pero gameStateUpdate lo hará más limpiamente
+             if(estadoJugadoresEl) estadoJugadoresEl.innerText += ` (${data.userId} salió)`;
+        });
+
+        socket.on("gameOver", (data) => {
+             console.log("Game Over recibido:", data.message);
+              if(enunciadoEl) enunciadoEl.textContent = "¡Juego Terminado!";
+              if(opcionesEl) opcionesEl.innerHTML = `<p class="text-lg font-semibold">${data.message || '¡Muy bien!'}</p>`;
+              if(feedbackTextEl) feedbackTextEl.textContent = ''; // Limpiar feedback final
+             setBotonesEstado(false); // Deshabilitar botones permanentemente
+             try { hablar(data.message || "Juego terminado"); } catch(e){}
+              // Podríamos habilitar el botón de salir ahora si estaba deshabilitado
+              // if(btnSalirEl) btnSalirEl.disabled = false;
+        });
+    }
+
+    // --- Inicialización ---
+    window.addEventListener('load', () => {
+        // Verificar prerrequisitos antes de conectar
+        if (!localUserId) {
+            alert("Perfil no seleccionado. Volviendo al inicio.");
+            window.location.href = '../index.html';
+            return;
+        }
+        if (!gameInstanceId) {
+            alert("Falta el identificador del juego (gameId). Volviendo al menú.");
+            window.location.href = '../menu.html';
+            return;
+        }
+         // Verificar que los elementos HTML esenciales existen
+         if (!jugadorActualEl || !enunciadoEl || !opcionesEl || !feedbackTextEl || !btnSalirEl || !mascotaJuegoEl || !mensajeMascotaEl || !juegoAreaEl || !nivelEl || !aciertosEl || !estadoJugadoresEl || !sonidoAcierto || !sonidoError || !sonidoNivel ) {
+            console.error("Error crítico: Faltan elementos HTML esenciales con los IDs correctos.");
+            alert("Error al cargar la interfaz del juego. Revisa la consola (F12) para más detalles.");
+            // No conectar si faltan elementos clave
+            return;
+         }
+        conectarSocket(); // Conectar solo si todo está OK
+    });
+
+     // Limpieza al salir de la página
+     window.addEventListener('beforeunload', () => {
+         if (socket && socket.connected) {
+             socket.emit('leaveGame', { gameInstanceId: gameInstanceId, userId: localUserId });
+             socket.disconnect(); // Desconectar al salir
+         }
+     });
+
+</script>
+
+</body>
+</html>

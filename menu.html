@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>🎯 Menú Principal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Comic+Neue&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Comic Neue', cursive; }
+        .btn-juego { display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(135deg, #60a5fa, #a78bfa); color: white; padding: 1.5rem; border-radius: 1rem; box-shadow: 0 6px 12px rgba(0,0,0,0.15); font-size: 1.25rem; font-weight: bold; text-align: center; transition: transform 0.2s ease, box-shadow 0.2s ease; cursor: pointer; min-height: 150px; }
+        .btn-juego:hover { transform: translateY(-5px) scale(1.03); box-shadow: 0 10px 20px rgba(96, 165, 250, 0.3); }
+        .btn-juego span { margin-top: 0.5rem; }
+        .btn-regresar { background-color: #9ca3af; } .btn-regresar:hover { background-color: #6b7280; box-shadow: 0 10px 20px rgba(156, 163, 175, 0.3); }
+    </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-sky-100 to-violet-200 text-center p-6">
+    <h1 id="titulo-bienvenida" class="text-4xl md:text-5xl font-extrabold text-blue-900 mb-4 drop-shadow-lg">🌟 Menú de Juegos 🌟</h1>
+    <div class="flex justify-center items-center gap-3 mb-6">
+         <img id="mascota-menu" src="https://cdn-icons-png.flaticon.com/512/616/616408.png" alt="Mascota" class="w-20 h-20 md:w-24 md:h-24 animate-bounce">
+         <p id="mensaje-mascota-menu" class="text-lg text-purple-700 font-semibold max-w-md">Cargando saludo...</p>
+    </div>
+    <h2 class="text-2xl font-semibold text-gray-700 mb-6">¡Elige tu aventura de aprendizaje!</h2>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto justify-items-center">
+        <div onclick="irJuego('voz')" class="btn-juego"><span class="text-4xl">🎤</span><span>Juego de Voz</span></div>
+        <div onclick="irJuego('seleccion')" class="btn-juego"><span class="text-4xl">🖱️</span><span>Selección Múltiple</span></div>
+        <div onclick="irJuego('teclado')" class="btn-juego"><span class="text-4xl">⌨️</span><span>Juego de Teclado</span></div>
+        <div onclick="irJuego('arrastrar')" class="btn-juego"><span class="text-4xl">🧩</span><span>Juego de Arrastrar</span></div>
+        <div onclick="irJuego('turing')" class="btn-juego"><span class="text-4xl">⚙️</span><span>Juego Turing</span></div>
+        <div onclick="regresar()" class="btn-juego btn-regresar"><span class="text-4xl">🔙</span><span>Cambiar Perfil</span></div>
+    </div>
+<script>
+    const API_BASE_URL = 'http://localhost:3001/api';
+    const localUserId = localStorage.getItem("usuarioActivo");
+    const tituloBienvenidaEl = document.getElementById('titulo-bienvenida');
+    const mascotaMenuEl = document.getElementById('mascota-menu');
+    const mensajeMascotaMenuEl = document.getElementById('mensaje-mascota-menu');
+    const frasesMascota = { "Perro": "¡Listo para jugar! 🐶", "Gato": "¡Demuestra lo que sabes! 🐱", "Tortuga": "¡Vamos a aprender! 🐢", "Elefante": "¡Mucha suerte! 🐘" };
+    const imagenesMascotas = { "Perro": "https://cdn-icons-png.flaticon.com/512/616/616408.png", "Gato": "https://cdn-icons-png.flaticon.com/512/616/616430.png", "Tortuga": "https://cdn-icons-png.flaticon.com/512/1998/1998611.png", "Elefante": "https://cdn-icons-png.flaticon.com/512/616/6164089.png"};
+
+    function hablar(texto) {
+         if (!texto || typeof speechSynthesis === 'undefined') return;
+         try {
+             speechSynthesis.cancel(); const voz = new SpeechSynthesisUtterance(texto); voz.lang = 'es-ES'; speechSynthesis.speak(voz);
+         } catch(e){ console.error("Speech error:", e); }
+    }
+
+    async function cargarDatosUsuario() {
+         if (!localUserId) {
+             if (tituloBienvenidaEl) tituloBienvenidaEl.textContent = "⚠️ ¡Error!";
+             if (mensajeMascotaMenuEl) mensajeMascotaMenuEl.textContent = "No se encontró un perfil activo. Por favor, selecciona uno.";
+             hablar("No se encontró perfil. Vuelve a la pantalla de inicio.");
+             // Opcional: deshabilitar botones de juego
+             document.querySelectorAll('.btn-juego:not(.btn-regresar)').forEach(btn => {
+                 btn.style.opacity = '0.5'; btn.style.pointerEvents = 'none';
+             });
+             return;
+         }
+         try {
+             const response = await fetch(`${API_BASE_URL}/usuarios/${localUserId}`);
+             if (!response.ok) { throw new Error(`Error ${response.status}`); }
+             const datosUsuario = await response.json();
+             if (!datosUsuario) { throw new Error('Datos de usuario vacíos'); }
+
+             if (tituloBienvenidaEl) tituloBienvenidaEl.textContent = `🌟 ¡Hola ${datosUsuario.nombre}! 🌟`;
+             if (mascotaMenuEl && datosUsuario.mascota) {
+                mascotaMenuEl.src = imagenesMascotas[datosUsuario.mascota] || imagenesMascotas['Perro'];
+                mascotaMenuEl.alt = datosUsuario.mascota;
+             }
+             const saludo = frasesMascota[datosUsuario.mascota] || "¡Vamos a jugar!";
+             if (mensajeMascotaMenuEl) mensajeMascotaMenuEl.textContent = saludo;
+             hablar(`Hola ${datosUsuario.nombre}. ${saludo}`);
+
+         } catch (error) {
+             console.error("Error cargando datos del usuario:", error);
+             if (tituloBienvenidaEl) tituloBienvenidaEl.textContent = "⚠️ ¡Error!";
+             if (mensajeMascotaMenuEl) mensajeMascotaMenuEl.textContent = "No se pudieron cargar tus datos.";
+             hablar("Hubo un error cargando tus datos.");
+             document.querySelectorAll('.btn-juego:not(.btn-regresar)').forEach(btn => {
+                btn.style.opacity = '0.5'; btn.style.pointerEvents = 'none';
+             });
+         }
+     }
+
+    function irJuego(nombreJuego) {
+        if (!localUserId) { alert("Selecciona un perfil primero."); return; }
+        const gameInstanceId = `${nombreJuego}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+        console.log(`Iniciando ${nombreJuego} con gameId: ${gameInstanceId}`);
+        hablar(`Entrando al juego de ${nombreJuego}`);
+        window.location.href = `juegos/${nombreJuego}.html?gameId=${gameInstanceId}`;
+    }
+
+    function regresar() {
+        hablar("Regresando a la selección de perfil"); window.location.href = "index.html";
+    }
+    document.addEventListener('DOMContentLoaded', cargarDatosUsuario);
+</script>
+</body>
+</html>
